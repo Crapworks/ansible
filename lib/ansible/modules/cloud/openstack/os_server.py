@@ -189,6 +189,11 @@ options:
      description:
        - Availability zone in which to create the server.
      required: false
+   tags:
+     description:
+       - Add a list of tags to the server.
+     required: false
+     version_added: "2.5"
 requirements:
     - "python >= 2.6"
     - "shade"
@@ -524,6 +529,7 @@ def _create_server(module, cloud):
         security_groups=module.params['security_groups'],
         userdata=module.params['userdata'],
         config_drive=module.params['config_drive'],
+        tags=module.params['tags'],
     )
     for optional_param in (
             'key_name', 'availability_zone', 'network',
@@ -710,6 +716,7 @@ def main():
         state                           = dict(default='present', choices=['absent', 'present']),
         delete_fip                      = dict(default=False, type='bool'),
         reuse_ips                       = dict(default=True, type='bool'),
+        tags                            = dict(default=[], type='list'),
     )
     module_kwargs = openstack_module_kwargs(
         mutually_exclusive=[
