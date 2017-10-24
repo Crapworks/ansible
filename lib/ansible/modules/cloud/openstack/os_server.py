@@ -412,6 +412,8 @@ EXAMPLES = '''
 
 '''
 
+import requests
+
 try:
     import shade
     from shade import meta
@@ -529,7 +531,6 @@ def _create_server(module, cloud):
         security_groups=module.params['security_groups'],
         userdata=module.params['userdata'],
         config_drive=module.params['config_drive'],
-        tags=module.params['tags'],
     )
     for optional_param in (
             'key_name', 'availability_zone', 'network',
@@ -549,7 +550,25 @@ def _create_server(module, cloud):
         **bootkwargs
     )
 
+    _set_server_tags(module, cloud, server)
+
     _exit_hostvars(module, cloud, server)
+
+
+def _set_server_tags(module, cloud, server):
+    for tag in module.params['tags']:
+        headers = {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-Language': 'en-us',
+            'X-Auth-Token': cloud.auth_token
+        }
+
+        for endpoint in cloud.service_catalog:
+            if endpoint['type'] == 'compute':
+                compute_endpoint = endpoint['endpoints'][0]['url']
+
+        requests.put('{}/servers/{}/tags/{}'.format(compute_endpoint, server.id, tag), headers=headers)
 
 
 def _update_server(module, cloud, server):
@@ -672,6 +691,7 @@ def _get_server_state(module, cloud):
     state = module.params['state']
     server = cloud.get_server(module.params['name'])
     if server and state == 'present':
+        _set_server_tags(module, cloud, server)
         if server.status not in ('ACTIVE', 'SHUTOFF', 'PAUSED', 'SUSPENDED'):
             module.fail_json(
                 msg="The instance is available but not Active state: "
