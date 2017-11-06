@@ -109,7 +109,15 @@ class OTCDatabase(object):
         return update_list
 
     def delete(self):
-        self.module.exit_json(changed=True, result='deleted')
+        instance = self.get_instance()
+        if not instance:
+            self.module.exit_json(changed=False, result='ok')
+
+        uri = 'instances/{}'.format(
+            instance['id']
+        )
+        data = self._api_call(uri, method='delete')
+        self.module.exit_json(changed=True, result='deleted', api=data)
 
     def get_db_id(self):
         uri = 'datastores/{}/versions'.format(
@@ -163,7 +171,7 @@ class OTCDatabase(object):
 
         self.module.exit_json(changed=True, server=resp, req={'instance': api_body})
 
-    def get_instance_id(self):
+    def get_instance(self):
         uri = 'instances'
         resp = self._api_call(uri)
         for instance in resp['instances']:
@@ -182,7 +190,7 @@ class OTCDatabase(object):
         return resp
 
     def update(self):
-        instance = self.get_instance_id()
+        instance = self.get_instance()
         if not instance:
             return None
 
@@ -196,7 +204,7 @@ class OTCDatabase(object):
             for prop, changes in updates.items():
                 if prop == 'volume':
                     if changes['old']['type'] != changes['new']['type']:
-                        self.module.fail_json(msg='only volume size can be changed on the fly, not volume type')
+                        self.module.fail_json(msg='only volume size can be changed on the fly, not volume type', changes=changes)
                     resp = self.update_volume_size(instance['id'], changes['new']['size'])
                     results['volume'] = resp
                 elif prop == 'flavor':
