@@ -61,7 +61,6 @@ EXAMPLES = '''
 
 try:
     import shade
-    from shade import meta
     HAS_SHADE = True
 except ImportError:
     HAS_SHADE = False
@@ -70,12 +69,6 @@ import requests
 
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.openstack import openstack_full_argument_spec
-
-
-def _exit_hostvars(module, cloud, server, changed=True):
-    hostvars = meta.get_hostvars_from_server(cloud, server)
-    module.exit_json(
-        changed=changed, server=server, id=server.id, openstack=hostvars)
 
 
 class OTCDatabase(object):
@@ -101,16 +94,19 @@ class OTCDatabase(object):
 
         return json_data
 
-    def _needs_update(self, instance):
+    def _get_updates(self, instance):
+        update_list = {}
         for key, value in self.module.params.items():
             if key in instance and instance[key] != value:
                 if key == 'name' and instance[key].startswith(value + '-' + self.module.params['datastore']['type']):
                     continue
-                if key == 'flavor' and self.get_rds_flavor_id(value) == instance[key]['id']:
+                if key == 'flavor' and self.get_rds_flavor_id() == instance[key]['id']:
                     continue
-                self.module.exit_json(changed=True, msg="SHOULD: {} = {} IS: {} = {}".format(key, value, key, instance[key]))
-                return True
-        return False
+                if key == 'volume' and value['type'] == instance[key]['type'] and value['size'] == instance[key]['size']:
+                    continue
+                update_list.update({key: {'old': instance[key], 'new': value}})
+
+        return update_list
 
     def delete(self):
         self.module.exit_json(changed=True, result='deleted')
@@ -166,39 +162,50 @@ class OTCDatabase(object):
         resp = self._api_call(uri, method='post', json={'instance': api_body})
 
         self.module.exit_json(changed=True, server=resp, req={'instance': api_body})
-        # _exit_hostvars(module, cloud, api_body)
 
-    def _debug(self, msg):
-        with open('/tmp/debug.log', 'w+') as fh:
-            fh.write(msg)
-
-    def state(self):
+    def get_instance_id(self):
         uri = 'instances'
         resp = self._api_call(uri)
         for instance in resp['instances']:
             if instance['name'].startswith(self.module.params['name'] + '-' + self.module.params['datastore']['type']):
-                uri = 'instances/' + instance['id']
-                resp = self._api_call(uri)
-                if not self._needs_update(resp['instance']):
-                    self.module.exit_json(changed=False, database=instance)
+                return instance
+        return None
 
-    def _update_rds(module, cloud, server):
-        changed = False
+    def update_volume_size(self, instance_id, size):
+        uri = 'instances/{}/action'.format(instance_id)
+        resp = self._api_call(uri, method='post', json={'resize': {'volume': {'size': size}}})
+        return resp
 
-        # cloud.set_server_metadata only updates the key=value pairs, it doesn't
-        # touch existing ones
-        update_meta = {}
-        for (k, v) in module.params['meta'].items():
-            if k not in server.metadata or server.metadata[k] != v:
-                update_meta[k] = v
+    def update_flavor(self, instance_id):
+        uri = 'instances/{}/action'.format(instance_id)
+        resp = self._api_call(uri, method='post', json={'resize': {'flavorRef': self.get_rds_flavor_id()}})
+        return resp
 
-        if update_meta:
-            cloud.set_server_metadata(server, update_meta)
-            changed = True
-            # Refresh server vars
-            server = cloud.get_server(module.params['name'])
+    def update(self):
+        instance = self.get_instance_id()
+        if not instance:
+            return None
 
-        return (changed, server)
+        uri = 'instances/' + instance['id']
+        resp = self._api_call(uri)
+        updates = self._get_updates(resp['instance'])
+        if not updates:
+            self.module.exit_json(changed=False, database=instance)
+        else:
+            results = {}
+            for prop, changes in updates.items():
+                if prop == 'volume':
+                    if changes['old']['type'] != changes['new']['type']:
+                        self.module.fail_json(msg='only volume size can be changed on the fly, not volume type')
+                    resp = self.update_volume_size(instance['id'], changes['new']['size'])
+                    results['volume'] = resp
+                elif prop == 'flavor':
+                    resp = self.update_flavor(instance['id'])
+                    results['flavor'] = resp
+                else:
+                    self.module.fail_json(msg='only volume size and flavor can be changed on the fly')
+
+            self.module.exit_json(changed=True, results=results)
 
 
 def main():
@@ -227,7 +234,7 @@ def main():
         database = OTCDatabase(module)
 
         if state == 'present':
-            database.state()
+            database.update()
             database.create()
         elif state == 'absent':
             database.delete()
