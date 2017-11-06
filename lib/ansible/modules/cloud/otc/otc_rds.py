@@ -16,20 +16,32 @@ ANSIBLE_METADATA = {'metadata_version': '1.1',
 DOCUMENTATION = '''
 ---
 module: otc_rds
-short_description: Create/Delete Compute Instances from OpenStack
+short_description: Create/Delete RDS Instances from OTC
 extends_documentation_fragment: openstack
 version_added: "2.5"
 author: "Christian Eichelmann ()"
 description:
-   - Create or Remove compute instances from OpenStack.
+   - Create or Remove RDS Instances from OTC
 options:
    name:
      description:
         - Name that has to be given to the instance
      required: true
-   image:
+   region:
      description:
-        - The name or id of the base image to boot.
+        - Region to use
+     required: true
+   datastore:
+     description:
+        - 
+     required: true
+   flavor:
+     description:
+        - 
+     required: true
+   volume:
+     description:
+        - 
      required: true
 requirements:
     - "python >= 2.6"
@@ -37,26 +49,29 @@ requirements:
 '''
 
 EXAMPLES = '''
-- name: Create a new instance and attaches to a network and passes metadata to the instance
-  os_server:
-       state: present
-       auth:
-         auth_url: https://region-b.geo-1.identity.hpcloudsvc.com:35357/v2.0/
-         username: admin
-         password: admin
-         project_name: admin
-       name: vm1
-       image: 4f905f38-e52a-43d2-b6ec-754a13ffb529
-       key_name: ansible_key
-       timeout: 200
-       flavor: 4
-       nics:
-         - net-id: 34605f38-e52a-25d2-b6ec-754a13ffb723
-         - net-name: another_network
-       meta:
-         hostname: test1
-         group: uge_master
-
+- name: create mysql database
+  otc_rds:
+    name: test-mysql
+    state: present
+    region: eu-de
+    datastore:
+      type: MySQL
+      version: "5.6.30"
+    flavor: s1.medium
+    volume:
+      type: COMMON
+      size: 100
+    region: eu-de
+    availabilityZone: eu-de-01
+    vpc: "{{ testnet_router.id }}"
+    nics:
+      subnetId: "{{ testnet_network.id }}"
+    securityGroup:
+      id: "{{ testsecgrp.id }}"
+    backupStrategy:
+      startTime: "01:00:00"
+      keepDays: 3
+    dbRtPd: Test@123
 '''
 
 try:
